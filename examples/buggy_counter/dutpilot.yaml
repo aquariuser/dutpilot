@@ -1,0 +1,5 @@
+case: buggy_counter
+dut: counter.v
+tb: tb_counter.v
+top: tb_counter
+sim: icarus
