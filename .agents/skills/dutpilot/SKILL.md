@@ -1,149 +1,216 @@
 ---
 name: dutpilot
-description: Use this skill when a user asks Codex to run, inspect, debug, or repair a Verilog/SystemVerilog DUT with the local DUTPilot RTL simulation harness. DUTPilot is also a reference pattern for wrapping a local domain tool as an agent-callable skill.
+description: Use this skill before writing Verilog/SystemVerilog testbenches whenever the task asks to implement, simulate, verify, test, debug, or validate RTL. This skill defines the required self-checking testbench contract, DUTPILOT_PASS/DUTPILOT_FAIL markers, DUTPilot CLI commands, and report.json interpretation rules.
 ---
 
 # DUTPilot Skill
 
-DUTPilot is a repo-local, agent-callable harness around a small RTL simulation tool. The simulator backend is intentionally narrow; the main purpose is to demonstrate a reliable skill contract for local tools.
+DUTPilot is a repo-local example of an agent-callable skill around a deterministic local CLI. The concrete domain is RTL simulation with Icarus Verilog, but the skill is also a template for wrapping any vertical-domain local tool.
 
-Use this skill to run the tool, read the structured report, and make decisions from evidence. Do not describe DUTPilot results as formal verification. DUTPilot reports simulation results from the provided self-checking testbench.
+Use the tool output as evidence. Do not infer correctness from source text alone. DUTPilot does not understand arbitrary RTL functionality by itself; the self-checking testbench encodes the expected behavior, and DUTPilot runs the simulation, parses markers/logs, and writes `report.json`.
 
-## Trigger
+## When To Use This Skill
 
-Use this skill when the user asks to:
+Use this skill before writing Verilog/SystemVerilog testbenches whenever the task involves:
 
-- Validate a DUT/testbench with DUTPilot.
-- Run `dutpilot.yaml`.
-- Inspect a DUTPilot `report.json`.
-- Debug a `DUTPILOT_FAIL`, compile error, simulation error, or missing pass marker.
-- Repair RTL and rerun the local simulation harness.
-- Demonstrate how a local tool can be exposed to Codex as a skill.
+- Writing Verilog/SystemVerilog RTL that should be simulated, verified, tested, debugged, or validated.
+- Writing or debugging self-checking testbenches.
+- Running DUTPilot with an existing `dutpilot.yaml`.
+- Interpreting `dutpilot_runs/<case>/reports/report.json`.
+- Iterating based on compile or simulation failures.
+- Demonstrating how Codex can call a deterministic local tool and use its structured report.
 
-Do not use this skill for unrelated HDL design work unless the user wants DUTPilot to run or inspect a DUTPilot report.
+Do not use this skill for unrelated HDL discussion unless DUTPilot execution, testbench creation, or report inspection is part of the task.
 
-## Inputs
+## Required Inputs
 
-Preferred input is an existing config file:
+DUTPilot needs:
 
-```text
-path/to/dutpilot.yaml
-```
+- DUT file, for example `counter.v`.
+- Testbench file, for example `tb_counter.v`.
+- Top testbench module, for example `tb_counter`.
+- Simulator backend, currently `icarus`.
+- Optional `dutpilot.yaml`; prefer it when present.
 
-Required config fields:
+Typical config:
 
 ```yaml
-case: <case_name>
-dut: <dut_file.v>
-tb: <testbench_file.v>
-top: <testbench_top_module>
+case: counter
+dut: counter.v
+tb: tb_counter.v
+top: tb_counter
 sim: icarus
 ```
 
-If no config exists, the command-line equivalent requires:
+Paths inside `dutpilot.yaml` are resolved relative to the config file.
 
-- `--dut path/to/dut.v`
-- `--tb path/to/tb.v`
-- `--top tb_top`
-- `--sim icarus`
-- optional `--case case_name`
+## Testbench Contract
 
-The testbench should be self-checking and print:
+When creating a testbench for DUTPilot, do not create a stimulus-only bench. The testbench must be self-checking before it is useful to the agent.
 
-- `DUTPILOT_PASS` on success.
-- `DUTPILOT_FAIL: <reason>` before `$fatal` or `$finish` on failure.
+A DUTPilot-compatible testbench must:
 
-For VCD output, write:
+- Derive expected behavior from the user request, specification, RTL comments, interface semantics, or explicit assumptions.
+- Apply stimulus and compare DUT outputs against expected results.
+- Print `DUTPILOT_FAIL: <reason>` on every detected mismatch.
+- After a mismatch, call `$fatal`, `$error` followed by termination, or `$finish`.
+- Print `DUTPILOT_PASS` only after all intended checks pass.
+- Call `$finish` on the successful path.
+- Prefer writing a VCD waveform to `waves/wave.vcd`.
+
+Recommended waveform pattern:
 
 ```verilog
 $dumpfile("waves/wave.vcd");
 $dumpvars(0, <tb_top>);
 ```
 
-## Commands
+If expected behavior is unclear, the agent must either ask the user for the missing specification or write only a minimal smoke test and clearly state that the testbench is not complete functional validation.
 
-Use `python`, not `python3`, in this repo unless the user explicitly asks for `python3`.
+Bad example, stimulus-only and not DUTPilot-compatible:
 
-Read the config before running when possible:
+```verilog
+initial begin
+    a = 1;
+    b = 2;
+    #10;
+    $finish;
+end
+```
+
+Good example, self-checking with explicit markers:
+
+```verilog
+initial begin
+    a = 1;
+    b = 2;
+    #1;
+    if (sum !== 3) begin
+        $display("DUTPILOT_FAIL: expected sum=3, got %0d", sum);
+        $fatal;
+    end
+    $display("DUTPILOT_PASS");
+    $finish;
+end
+```
+
+## Workflow
+
+Recommended order:
+
+1. Identify whether the task involves RTL implementation, simulation, verification, testbench creation, debugging, or validation.
+2. Read and apply the DUTPilot testbench contract before writing the testbench.
+3. Write or update the RTL.
+4. Write a DUTPilot-compatible self-checking testbench.
+5. Create or update `dutpilot.yaml`.
+6. Run:
 
 ```bash
-python -m dutpilot.cli verify path/to/dutpilot.yaml
+python3 -m dutpilot.cli verify <dutpilot.yaml>
 ```
 
-Without a config:
+Or:
 
 ```bash
-python -m dutpilot.cli verify --dut path/to/dut.v --tb path/to/tb.v --top tb_top --sim icarus
+python3 -m dutpilot.cli verify --dut <dut.v> --tb <tb.v> --top <tb_top> --sim icarus
 ```
 
-For the adder smoke test:
-
-```bash
-python -m dutpilot.cli verify examples/adder/dutpilot.yaml
-```
-
-For the intentional failure demo:
-
-```bash
-python -m dutpilot.cli verify examples/buggy_counter/dutpilot.yaml
-```
-
-If waveform inspection is useful and a VCD exists, open it only when the user asks:
-
-```bash
-python -m dutpilot.cli wave <run_dir>
-```
-
-`verify` must remain CI/agent-friendly and must not auto-open GUI tools.
-
-## Outputs
-
-Each run writes:
-
-```text
-dutpilot_runs/<case>/
-  src/
-  tb/
-  build/
-  logs/
-  reports/
-  scripts/
-  waves/
-```
-
-Always read the structured report before making claims:
+7. Read:
 
 ```text
 dutpilot_runs/<case>/reports/report.json
 ```
 
+8. Decide next steps from `status`, `stage`, `primary_error`, and `next_action_hint`.
+9. If failed, modify the RTL or testbench and rerun.
+10. Only when `report.json` has `status=pass` in current DUTPilot v0.1, or `status=passed` in a future schema, say it passed the current testbench.
+
+## Commands
+
+Prefer an existing config:
+
+```bash
+python3 -m dutpilot.cli verify <dutpilot.yaml>
+```
+
+Example:
+
+```bash
+python3 -m dutpilot.cli verify examples/adder/dutpilot.yaml
+```
+
+Without a config:
+
+```bash
+python3 -m dutpilot.cli verify --dut <dut.v> --tb <tb.v> --top <tb_top> --sim icarus
+```
+
+Intentional failure demo:
+
+```bash
+python3 -m dutpilot.cli verify examples/buggy_counter/dutpilot.yaml
+```
+
+Open a VCD only when the user asks:
+
+```bash
+python3 -m dutpilot.cli wave <run_dir>
+```
+
+`verify` must stay non-interactive and must not open GUI tools.
+
+## Report Inspection
+
+Always read the report before making claims:
+
+```text
+dutpilot_runs/<case>/reports/report.json
+```
+
+When needed, also inspect:
+
+- `dutpilot_runs/<case>/reports/summary.md`
+- `dutpilot_runs/<case>/logs/transcript.log`
+- `dutpilot_runs/<case>/logs/compile.log`
+- `dutpilot_runs/<case>/logs/simulate.log`
+- `dutpilot_runs/<case>/waves/wave.vcd`
+
 Important report fields:
 
-- `status`: `pass` or `fail`
-- `stage`: `compile` or `simulate`
-- `primary_error`: first actionable error or failure marker, or `null`
-- `next_action_hint`: concise suggested next step
-- `markers`: detected `DUTPILOT_PASS` and `DUTPILOT_FAIL` lines
-- `errors`: parsed simulator errors/fatals/syntax diagnostics
-- `warnings`: parsed warnings
-- `return_codes`: compile and simulation return codes
-- `artifacts`: paths to logs, report, summary, simulation binary, and optional wave
+- `status`: current v0.1 emits `pass` or `fail`.
+- `stage`: current v0.1 emits `compile` or `simulate`.
+- `primary_error`: first actionable failure or `null`.
+- `next_action_hint`: suggested next step.
+- `errors`: parsed simulator diagnostics.
+- `warnings`: parsed warnings.
+- `markers`: parsed `DUTPILOT_PASS` and `DUTPILOT_FAIL` lines.
+- `artifacts`: paths to generated files.
+- `return_codes`: compile and simulation return codes.
 
 ## Decision Rules
 
-1. If `status == "pass"`, say the supplied simulation testbench passed. Mention scope when relevant. Do not call it formal proof or exhaustive verification.
-2. If `stage == "compile"`, inspect `logs/compile.log` first and fix syntax, missing module, or compile option issues.
-3. If `stage == "simulate"` and `primary_error` contains `DUTPILOT_FAIL`, use that failure reason as the primary debugging target.
-4. If simulation failed without a fail marker, inspect `logs/simulate.log`, `logs/transcript.log`, and the waveform path if present.
-5. If no `DUTPILOT_PASS` appears, treat the run as failed even if process return codes are zero.
-6. When repairing code, keep edits scoped to the DUT or testbench needed for the reported failure, then rerun and reread `report.json`.
-7. When reporting results, cite `status`, `stage`, and `primary_error` or state that `primary_error` is `null`.
+- If `status=pass` or a future report says `status=passed`, only say the RTL passed the provided DUTPilot/Icarus testbench.
+- If `stage=compile`, fix syntax errors, missing files, top/module mismatches, compile order, or unsupported constructs first.
+- If `stage=simulate` or a future report says `stage=simulation`, inspect `primary_error`, failure markers, RTL behavior, and testbench expectations.
+- If a future report says `status=inconclusive`, fix the testbench so it produces a clear `DUTPILOT_PASS` or `DUTPILOT_FAIL`.
+- If a future report says `stage=timeout`, inspect clock generation, reset release, wait conditions, and whether `$finish` is reachable.
+- If a future report says `stage=tool_missing`, install or configure the required local tool before editing RTL.
+- If no `DUTPILOT_PASS` appears, treat the run as failed even when process return codes are zero.
+- After editing RTL or testbench code, rerun the same DUTPilot command and reread `report.json`.
+
+## What Not To Claim
+
+Do not claim the RTL is fully verified or formally verified.
+
+Only say it passed the provided DUTPilot/Icarus testbench. Be explicit about scope when reporting results.
 
 ## References
 
+- Root testbench contract: `../../../docs/testbench-contract.md`
 - Testbench marker and waveform expectations: `references/testbench-contract.md`
 - Report fields and decision guidance: `references/report-schema.md`
 - Agent contract: `../../../docs/agent-contract.md`
+- Agent demo: `../../../docs/agent-demo.md`
 - Failure repair demo: `../../../docs/failure-repair-demo.md`
 
 ## Helper Script
@@ -154,4 +221,4 @@ For the common Icarus path, this helper may be used:
 .agents/skills/dutpilot/scripts/verify_icarus.sh path/to/dutpilot.yaml
 ```
 
-The script prints the verification result and report path. Read the report JSON afterward before making claims about pass/fail or next steps.
+The script prints the result and report path. Read the report JSON afterward.

@@ -1,56 +1,80 @@
 # Failure Repair Demo
 
-`examples/buggy_counter/` is intentionally wrong. It exists to demonstrate how an agent should use DUTPilot evidence to repair RTL.
+This demo explains the intended `examples/buggy_counter/` workflow. It demonstrates an agent repair loop. DUTPilot runs the local tool and writes evidence; it does not automatically repair the RTL.
 
-## Expected Failure
-
-Run:
+## Run The Demo
 
 ```bash
-python -m dutpilot.cli verify examples/buggy_counter/dutpilot.yaml
+python3 -m dutpilot.cli verify examples/buggy_counter/dutpilot.yaml
 ```
 
-The testbench expects a counter to increment by one on each enabled clock. The DUT increments by two, so the first checked count should fail.
+The first run is expected to fail. The decisive stage should be simulation, because the DUT compiles but the self-checking testbench finds a behavior mismatch.
 
-Expected report location:
+## What To Read
+
+Open:
 
 ```text
 dutpilot_runs/buggy_counter/reports/report.json
 ```
 
-The report should have:
+Focus on:
 
-- `status`: `fail`
-- `stage`: `simulate`
-- `primary_error`: a `DUTPILOT_FAIL` marker describing the count mismatch
+- `status`
+- `stage`
+- `primary_error`
+- `next_action_hint`
+- `artifacts.transcript_log`
 
-## Codex Repair Flow
-
-Codex should:
-
-1. Read `.agents/skills/dutpilot/SKILL.md`.
-2. Run the existing config.
-3. Read `dutpilot_runs/buggy_counter/reports/report.json`.
-4. Use `primary_error` and `markers.fail` as the main debugging target.
-5. Inspect `examples/buggy_counter/counter.v` and `examples/buggy_counter/tb_counter.v`.
-6. Make the smallest RTL edit that matches the testbench expectation.
-7. Rerun the same command.
-8. Read the new `report.json`.
-9. Stop when `status == "pass"`.
-
-## Report Reading Logic
-
-Use this decision model:
+Then inspect the transcript if needed:
 
 ```text
-if status == "pass":
-    report simulation pass for the supplied testbench
-elif stage == "compile":
-    inspect compile.log and fix syntax or missing module issues
-elif primary_error contains "DUTPILOT_FAIL":
-    inspect the named failing behavior in the DUT/testbench
-else:
-    inspect simulate.log, transcript.log, and wave if present
+dutpilot_runs/buggy_counter/logs/transcript.log
 ```
 
-Do not claim the fixed counter is formally verified. The correct statement is that it passed the supplied self-checking simulation testbench.
+## Expected Failure
+
+The testbench expects:
+
+- Reset drives `count=0`.
+- Each following clock increments `count` by `1`.
+
+The intentionally buggy RTL does:
+
+```verilog
+count <= count + 4'd2;
+```
+
+So the first checked increment should produce a `DUTPILOT_FAIL` marker similar to:
+
+```text
+DUTPILOT_FAIL: expected count 1, got 2
+```
+
+## Agent Repair Steps
+
+The agent should:
+
+1. Run DUTPilot.
+2. Read `report.json`.
+3. Confirm `status=fail` and `stage=simulate`.
+4. Read `primary_error` and transcript evidence.
+5. Compare `tb_counter.v` expectations with `counter.v` behavior.
+6. Change the counter increment from `+ 4'd2` to `+ 4'd1`.
+7. Rerun:
+
+```bash
+python3 -m dutpilot.cli verify examples/buggy_counter/dutpilot.yaml
+```
+
+After the fix, the expected result is `status=pass` in current DUTPilot v0.1.
+
+## Scope
+
+This demo shows the agent repair loop:
+
+```text
+run local tool -> read report -> edit code -> rerun
+```
+
+It does not show automatic DUTPilot repair, and a passing run only means the design passed the provided DUTPilot/Icarus testbench.

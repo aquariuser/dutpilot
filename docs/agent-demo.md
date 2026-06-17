@@ -1,70 +1,87 @@
 # Agent Demo
 
-This demo shows how Codex should use DUTPilot as a local skill.
+## Demo Goal
 
-## Recommended Prompt
+This demo shows how Codex can use DUTPilot as an agent-callable local skill. Codex calls a deterministic local tool, reads `report.json`, and iterates from real compile or simulation results instead of guessing.
 
-```text
-Use the DUTPilot skill to validate examples/adder/dutpilot.yaml.
-Run the tool, read report.json, and tell me whether the supplied simulation testbench passed.
-Do not describe the result as formal verification.
-```
-
-For repair workflows:
+## Recommended Codex Prompt
 
 ```text
-Use the DUTPilot skill to run examples/buggy_counter/dutpilot.yaml.
-Read the DUTPilot report, identify the failing RTL behavior, fix the bug, and rerun until report.json says pass.
+$dutpilot
+
+Create a 4-bit counter and a self-checking testbench.
+Run DUTPilot with Icarus.
+Read report.json.
+If it fails, fix the RTL or testbench and rerun until status=passed.
 ```
 
-## Agent Flow
+For the included passing example:
 
-1. Read `.agents/skills/dutpilot/SKILL.md`.
-2. Prefer the existing `dutpilot.yaml`.
-3. Run the verification command.
-4. Open `dutpilot_runs/<case>/reports/report.json`.
-5. Decide from `status`, `stage`, `primary_error`, and `next_action_hint`.
-6. Inspect logs or waveforms only when the report points there.
+```text
+$dutpilot Verify examples/adder/dutpilot.yaml and summarize report.json.
+```
 
-## Passing Example
+For the included repair example:
 
-Run:
+```text
+$dutpilot Run examples/buggy_counter/dutpilot.yaml. Read report.json, explain the mismatch, fix counter.v, and rerun until the provided testbench passes.
+```
+
+## Expected Agent Workflow
+
+1. Create or modify RTL.
+2. Create or modify a self-checking testbench.
+3. Run DUTPilot.
+4. Read `dutpilot_runs/<case>/reports/report.json`.
+5. Inspect `status` and `stage`.
+6. Use `primary_error`, `next_action_hint`, and logs to choose the next action.
+7. Fix RTL or testbench.
+8. Rerun until the report is passing.
+
+## Example Command
 
 ```bash
-python -m dutpilot.cli verify examples/adder/dutpilot.yaml
+python3 -m dutpilot.cli verify examples/adder/dutpilot.yaml
 ```
 
-Then read:
+Then inspect:
 
 ```bash
 cat dutpilot_runs/adder/reports/report.json
 ```
 
-Decision logic:
+## Example Report Interpretation
+
+Passing report:
 
 ```text
-if status == "pass":
-    report that the adder testbench simulation passed
-elif stage == "compile":
-    inspect logs/compile.log
-elif primary_error contains "DUTPILOT_FAIL":
-    inspect the failure marker and DUT behavior
-else:
-    inspect simulate.log, transcript.log, and wave if present
+status=pass, stage=simulate, primary_error=null
 ```
 
-## What Codex Should Say
+Interpretation: the DUT passed the provided DUTPilot/Icarus testbench.
 
-A good final answer is evidence-based:
+Failing report:
 
 ```text
-DUTPilot reports status=pass at stage=simulate for case=adder.
-The supplied testbench emitted DUTPILOT_PASS and no errors were parsed.
-This means the adder passed this simulation testbench; it is not formal verification.
+status=fail, stage=simulate, primary_error="DUTPILOT_FAIL: ..."
 ```
 
-Avoid:
+Interpretation: the simulator ran, but the self-checking testbench found a mismatch. Inspect the failure marker, then compare DUT behavior with the testbench expectation.
+
+Compile failure:
 
 ```text
-The adder is formally verified.
+status=fail, stage=compile
 ```
+
+Interpretation: inspect `logs/compile.log` before changing behavior.
+
+Inconclusive future report:
+
+```text
+status=inconclusive
+```
+
+Interpretation: repair the testbench so it emits an explicit `DUTPILOT_PASS` or `DUTPILOT_FAIL`.
+
+Do not call a passing simulation complete verification. Say it passed the provided testbench.

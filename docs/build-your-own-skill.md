@@ -1,115 +1,91 @@
-# Build Your Own Agent Skill
+# How To Turn A Local Tool Into An Agent Skill
 
-DUTPilot is a concrete example of a general pattern: wrap a local domain tool so an agent can call it reliably, inspect structured output, and choose the next action.
+DUTPilot is a concrete example of a general engineering pattern: package a repeatable local workflow so an agent can call it, inspect a structured result, and make bounded decisions.
 
-## The Pattern
+## The General Pattern
 
-1. Pick a narrow local tool.
-2. Define stable inputs.
-3. Provide one non-interactive command.
-4. Write artifacts to a predictable directory.
-5. Emit a machine-readable report.
-6. Teach the agent decision rules in `SKILL.md`.
-7. Include passing and failing examples.
+1. Choose a repeatable local workflow.
+2. Wrap it behind a CLI.
+3. Define stable inputs.
+4. Produce structured outputs.
+5. Write `SKILL.md`.
+6. Define agent decision rules.
+7. Provide success and failure examples.
 
-## 1. Pick a Narrow Tool
+The goal is not to make the agent guess better. The goal is to make the agent use reliable local evidence.
 
-The tool should do one thing well. DUTPilot runs a DUT and self-checking testbench. Other good candidates:
+## What DUTPilot Demonstrates
 
-- Schema validators.
-- Project migration checkers.
-- Hardware lint wrappers.
-- Internal build/test runners.
-- Data quality checks.
-- Static analysis tools.
+DUTPilot demonstrates:
 
-Avoid making the skill depend on open-ended human interaction.
+- CLI: `python3 -m dutpilot.cli verify <config>`.
+- `report.json`: stable machine-readable output.
+- Testbench contract: explicit `DUTPILOT_PASS` and `DUTPILOT_FAIL` markers.
+- Codex skill: `.agents/skills/dutpilot/SKILL.md`.
+- Failure-repair loop: run, read report, edit, rerun.
 
-## 2. Define Inputs
+The same structure can wrap non-RTL tools, such as data validators, security scanners, migration assistants, style checkers, code generators, or internal build tools.
 
-Use a small config file when possible:
-
-```yaml
-case: my_case
-input: path/to/input
-mode: strict
-```
-
-Document required fields, relative path behavior, defaults, and unsupported cases.
-
-## 3. Define Commands
-
-Give the agent a canonical command:
-
-```bash
-python -m mytool.cli verify path/to/config.yaml
-```
-
-The command should:
-
-- Be deterministic enough for automation.
-- Return non-zero on failure.
-- Avoid GUI launch or prompts.
-- Write logs and reports before exiting.
-
-## 4. Define Outputs
-
-Prefer a run directory:
+## Generic Skill Template
 
 ```text
-tool_runs/<case>/
-  logs/
-  reports/
-  artifacts/
+my-tool/
+  mytool/
+    __init__.py
+    cli.py
+  .agents/
+    skills/
+      mytool/
+        SKILL.md
+  docs/
+    agent-contract.md
+    agent-demo.md
+  examples/
+    passing_case/
+    failing_case/
 ```
 
-Always include a structured report:
+Recommended CLI shape:
+
+```bash
+python3 -m mytool.cli run path/to/config.yaml
+```
+
+Recommended report shape:
 
 ```json
 {
   "status": "fail",
   "stage": "check",
   "primary_error": "expected X, got Y",
-  "next_action_hint": "Inspect input normalization."
+  "next_action_hint": "Inspect input normalization.",
+  "artifacts": {
+    "report_json": "reports/report.json",
+    "transcript_log": "logs/transcript.log"
+  }
 }
 ```
 
-The report lets the agent make decisions without scraping arbitrary terminal output.
+## Skill Quality Checklist
 
-## 5. Write Decision Rules
+- Clear trigger: the agent knows when to use the skill.
+- Deterministic command: the main command is non-interactive and repeatable.
+- Stable inputs: config fields and path rules are documented.
+- Machine-readable output: the agent does not scrape arbitrary terminal text.
+- Failure handling: status and stage map to concrete next actions.
+- Safety limitations: the skill says what not to claim.
+- Examples: include both success and failure cases.
+- No exaggerated claims: report only what the local tool actually checked.
 
-In the skill, tell the agent exactly how to react:
+## Applying The Pattern
 
-- What status values mean.
-- Which log to inspect for each stage.
-- Which errors are actionable.
-- When to edit files.
-- When to stop and ask the user.
-- What claims are not allowed.
+When adapting this structure to another field:
 
-DUTPilot explicitly forbids calling simulation results formal verification. Your skill should include similar domain-specific guardrails.
+1. Start from the real local command users already trust.
+2. Add a thin CLI wrapper if needed.
+3. Standardize output directories.
+4. Emit a JSON report with status, stage, primary error, artifacts, and hints.
+5. Write a skill that forces the agent to read the report before acting.
+6. Include a failure demo so the repair loop is obvious.
 
-## 6. Include Examples
-
-Include at least:
-
-- One passing example.
-- One failing example with a clear repair path.
-- A sample prompt.
-- A sample report interpretation.
-
-Examples convert the skill from documentation into an executable pattern.
-
-## DUTPilot Mapping
-
-DUTPilot implements the pattern as:
-
-- Skill: `.agents/skills/dutpilot/SKILL.md`
-- Tool command: `python -m dutpilot.cli verify <config>`
-- Config: `dutpilot.yaml`
-- Run directory: `dutpilot_runs/<case>/`
-- Report: `reports/report.json`
-- Passing example: `examples/adder/`
-- Failing example: `examples/buggy_counter/`
-
-Use this structure as a template for other local tools.
+Keep the scope narrow. A high-quality skill is a reliable bridge between an agent and a local tool, not a replacement for the tool.

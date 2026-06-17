@@ -1,5 +1,19 @@
 # AGENTS.md
 
+## RTL Simulation Verification Rule
+
+For any task involving Verilog/SystemVerilog RTL implementation, simulation, verification, debugging, or testbench creation, use the repo-scoped `dutpilot` workflow.
+
+Before writing a testbench, follow the DUTPilot self-checking testbench contract. A DUTPilot-compatible testbench must:
+
+- Compare DUT outputs against expected behavior.
+- Print `DUTPILOT_FAIL: <reason>` on mismatch.
+- Print `DUTPILOT_PASS` only after all checks pass.
+- Call `$finish`.
+- Preferably dump `waves/wave.vcd`.
+
+Do not treat a stimulus-only testbench as DUTPilot verification. Do not claim the RTL is `fully verified` or `formally verified`. Only say it `passed the provided DUTPilot/Icarus testbench`.
+
 ## DUTPilot Verification Workflow
 
 Use the repo-scoped `dutpilot` skill for Verilog/SystemVerilog RTL simulation verification tasks.

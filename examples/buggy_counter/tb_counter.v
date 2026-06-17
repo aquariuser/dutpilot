@@ -1,13 +1,11 @@
 module tb_counter;
     reg clk;
     reg rst_n;
-    reg en;
     wire [3:0] count;
 
     counter dut (
         .clk(clk),
         .rst_n(rst_n),
-        .en(en),
         .count(count)
     );
 
@@ -32,12 +30,10 @@ module tb_counter;
         $dumpvars(0, tb_counter);
 
         rst_n = 1'b0;
-        en = 1'b0;
         repeat (2) @(negedge clk);
         rst_n = 1'b1;
         expect_count(4'd0);
 
-        en = 1'b1;
         @(negedge clk);
         expect_count(4'd1);
 
