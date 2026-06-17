@@ -1,0 +1,5 @@
+case: fifo
+dut: sync_fifo.v
+tb: tb_sync_fifo.v
+top: tb_sync_fifo
+sim: icarus
